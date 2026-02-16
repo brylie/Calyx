@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add open questions document outlining open questions and areas for further research and development (`docs/open-questions.md`)
 - Content license (CC BY 4.0) for documentation and specification
 - CONTRIBUTING.md with guidelines for code contributions, documentation contributions, and communication channels
+- Project ROADMAP outlining the planned development phases and milestones (`ROADMAP.md`)
 - Project README
 
 [Unreleased]: https://github.com/brylie/Calyx/compare/v0.1.0...HEAD
