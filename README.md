@@ -53,7 +53,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to participate. In sho
 Calyx uses a dual-license approach:
 
 - **Source code** is licensed under [Apache 2.0](LICENSE). This includes the patent grant provision, which ensures that contributors and users are protected from patent claims arising from the codec algorithms.
-- **Specification, documentation, and diagrams** are licensed under [CC-BY-4.0](LICENSE-DOCS), allowing free use and adaptation with attribution.
+- **Specification, documentation, and diagrams** are licensed under [CC-BY-4.0](LICENSE-content.md), allowing free use and adaptation with attribution.
 
 This structure is intended to keep the format and its implementations permanently open and available for anyone to use, build on, or integrate into commercial or non-commercial projects.
 
