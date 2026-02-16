@@ -1,4 +1,4 @@
-# Content License
+# Creative Commons Attribution 4.0 International Public License
 
 This license applies to all project documentation, specifications, and other non-code content in this repository.
 
