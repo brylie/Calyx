@@ -217,4 +217,4 @@ The following activities run in parallel with the phased work above:
 
 ---
 
-*This roadmap will be updated as phases are completed and as new information changes the plan. Contributions that help advance any phase are welcome; see [CONTRIBUTING.md](../CONTRIBUTING.md) for how to get involved.*
+*This roadmap will be updated as phases are completed and as new information changes the plan. Contributions that help advance any phase are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.*
