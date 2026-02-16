@@ -2,7 +2,7 @@
 
 **Version:** 0.1.0-draft
 **Status:** Work in progress
-**License:** This document is licensed under the [Creative Commons Attribution 4.0 International (CC BY 4.0) License](../LICENSE-content.md).
+**License:** This document is licensed under the [Creative Commons Attribution 4.0 International (CC BY 4.0) License](https://creativecommons.org/licenses/by/4.0/).
 
 ## Abstract
 
@@ -75,11 +75,13 @@ Each cell in the hypercube contains a spectral frame: a vector of values describ
 A spectral frame at position (t, p, d, a, v) contains:
 
 **Deterministic component:**
+
 - Partial amplitudes: a vector of N amplitude values, one per tracked harmonic partial (e.g., N = 64 or 128). These represent the instantaneous amplitude of each partial at this point in the parameter space.
 - Partial frequency ratios (optional): deviation of each partial from exact harmonic spacing. Relevant for instruments with inharmonicity (piano, bells). For perfectly harmonic instruments, this can be omitted or stored as a per-pitch inharmonicity profile rather than per-frame.
 - Phase relationships (optional): inter-partial phase offsets where perceptually relevant. See Section 6.1 for discussion of phase handling strategies.
 
 **Stochastic component:**
+
 - Spectral envelope of the noise/residual component, represented as a low-order filter shape (e.g., bark-band or ERB-band energy values). This captures aperiodic content such as bow noise, breath noise, hammer impact, and key mechanisms.
 - Stochastic energy: overall level of the noise component relative to the deterministic component.
 

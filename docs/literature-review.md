@@ -1,7 +1,7 @@
 # Calyx Literature Review
 
 **Status:** In progress
-**License:** CC-BY-4.0
+**License:** This document is licensed under the [Creative Commons Attribution 4.0 International (CC BY 4.0) License](https://creativecommons.org/licenses/by/4.0/).
 
 This document surveys prior work relevant to the Calyx project. It covers spectral analysis and modeling, audio compression, tensor and matrix decomposition methods, existing sampler technology, and open source audio projects. Each section summarizes the relevant ideas, notes what Calyx can borrow or build on, and identifies gaps or divergences.
 
