@@ -4,6 +4,44 @@
 **Status:** Work in progress
 **License:** This document is licensed under the [Creative Commons Attribution 4.0 International (CC BY 4.0) License](https://creativecommons.org/licenses/by/4.0/).
 
+- [Calyx Specification](#calyx-specification)
+  - [Abstract](#abstract)
+  - [1. Background and motivation](#1-background-and-motivation)
+    - [1.1 The cost structure of sampled instruments](#11-the-cost-structure-of-sampled-instruments)
+    - [1.2 The redundancy in sampled content](#12-the-redundancy-in-sampled-content)
+    - [1.3 Design goals](#13-design-goals)
+  - [2. Conceptual model](#2-conceptual-model)
+    - [2.1 The spectral hypercube](#21-the-spectral-hypercube)
+    - [2.2 Spectral frame contents](#22-spectral-frame-contents)
+    - [2.3 Relationship to existing paradigms](#23-relationship-to-existing-paradigms)
+  - [3. Analysis pipeline](#3-analysis-pipeline)
+    - [3.1 Input requirements](#31-input-requirements)
+    - [3.2 Spectral analysis](#32-spectral-analysis)
+    - [3.3 Hypercube population](#33-hypercube-population)
+    - [3.4 Alignment and normalization](#34-alignment-and-normalization)
+  - [4. Compression](#4-compression)
+    - [4.1 Overview](#41-overview)
+    - [4.2 Partial-domain dimensionality reduction](#42-partial-domain-dimensionality-reduction)
+    - [4.3 Tensor decomposition](#43-tensor-decomposition)
+    - [4.4 Shared component extraction](#44-shared-component-extraction)
+    - [4.5 Quality tiers](#45-quality-tiers)
+  - [5. Container format](#5-container-format)
+    - [5.1 File structure](#51-file-structure)
+    - [5.2 Extensibility](#52-extensibility)
+    - [5.3 Relationship to existing formats](#53-relationship-to-existing-formats)
+  - [6. Reconstruction and playback](#6-reconstruction-and-playback)
+    - [6.1 Phase handling](#61-phase-handling)
+    - [6.2 Real-time synthesis](#62-real-time-synthesis)
+    - [6.3 Decompression to PCM](#63-decompression-to-pcm)
+  - [7. Limitations and known tradeoffs](#7-limitations-and-known-tradeoffs)
+    - [7.1 Transient fidelity](#71-transient-fidelity)
+    - [7.2 Non-harmonic and percussive sources](#72-non-harmonic-and-percussive-sources)
+    - [7.3 Lossy compression](#73-lossy-compression)
+    - [7.4 Disk streaming considerations](#74-disk-streaming-considerations)
+  - [8. Future directions](#8-future-directions)
+  - [References](#references)
+
+
 ## Abstract
 
 Calyx defines a compressed spectral representation format for multi-sampled instrument libraries. A sampled instrument's audio content is decomposed into harmonic partials, organized into a multi-dimensional tensor (spectral hypercube) indexed by musically meaningful parameters, and compressed using dimensionality reduction and tensor decomposition techniques. The resulting format is significantly smaller than equivalent PCM audio while preserving the perceptual character of the original instrument. The compressed representation can be decompressed back to conventional audio or played back directly by a compatible spectral synthesis engine.
