@@ -1,0 +1,26 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Calyx"
+  description: "A compressed spectral representation format for sampled instruments"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - text: Documentation
+        menu:
+          - href: docs/specification.md
+            text: Specification
+          - href: docs/literature-review.md
+            text: Literature Review
+          - href: docs/use-cases.md
+            text: Use Cases
+          - href: docs/open-questions.md
+            text: Open Questions
+
+format:
+  html:
+    theme: cosmo
+    toc: true

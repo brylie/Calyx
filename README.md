@@ -40,6 +40,34 @@ Calyx is in the **specification and early research** phase. The core concept is 
 
 Contributions are welcome at every level: feedback on the specification, literature references, signal-processing expertise, Rust development, perceptual listening tests, and industry perspectives from sample library developers or users.
 
+## Documentation
+
+The project documentation is built with [Quarto](https://quarto.org) and managed with [Pixi](https://pixi.sh) for reproducible dependency installation.
+
+Install Pixi:
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+Install project dependencies (Quarto, Python, Jupyter):
+
+```bash
+pixi install
+```
+
+Preview the documentation website locally:
+
+```bash
+pixi run preview
+```
+
+Render the documentation to static HTML:
+
+```bash
+pixi run docs
+```
+
 ## Quick start
 
 *The proof of concept is not yet available. This section will be updated when the PoC reaches a usable state.*
