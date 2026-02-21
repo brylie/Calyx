@@ -1,0 +1,33 @@
+---
+title: "Calyx"
+subtitle: "A compressed spectral representation format for sampled instruments"
+---
+
+Calyx is an open specification and reference implementation for encoding multi-sampled instrument libraries as compact spectral hypercube structures. Instead of storing raw audio waveforms, Calyx decomposes sampled sounds into their harmonic components and compresses the resulting spectral data using dimensionality reduction and tensor decomposition techniques.
+
+The goal is to reduce the storage, distribution, and runtime costs of expressive instrument emulation by one to three orders of magnitude compared with conventional PCM-based sample libraries.
+
+## The problem
+
+Modern sampled instrument libraries achieve expressive realism by recording large numbers of audio samples across multiple dimensions: pitch, dynamic level, articulation type, round robin variation, and more. A flagship orchestral library may contain 300 to 500 gigabytes of PCM audio data. This creates compounding costs at every stage of the production chain:
+
+- **For vendors:** warm storage and CDN egress costs scale linearly with library size and customer base.
+- **For consumers:** downloading a large library can take hours; storing multiple libraries requires dedicated high-capacity SSDs.
+- **For musical expression:** conventional samplers crossfade between discrete sample layers, producing audible seams and limiting performance fluidity.
+
+## Proposed approach
+
+Calyx represents a sampled instrument as a multi-dimensional tensor (a *spectral hypercube*) where each axis corresponds to a musically meaningful parameter: time, pitch, dynamic level, articulation, and variation. Each point encodes the amplitudes of the sound's harmonic partials.
+
+Because acoustic instruments have strong correlations across all these dimensions, the hypercube is highly compressible. Calyx applies principal component analysis (PCA), non-negative matrix factorization (NMF), and tensor decomposition methods (Tucker, CP) to produce a compact representation that can be stored, transmitted, or played back directly via spectral synthesis.
+
+## Current status
+
+Calyx is in the **specification and early research** phase. Contributions are welcome at every level: feedback on the specification, literature references, signal-processing expertise, Rust development, and industry perspectives from sample library developers or users.
+
+## Documentation
+
+- [Specification](docs/specification.md) — the core technical specification
+- [Literature Review](docs/literature-review.md) — related research and prior art
+- [Use Cases](docs/use-cases.md) — motivating scenarios and applications
+- [Open Questions](docs/open-questions.md) — unresolved research and design questions
