@@ -1,0 +1,17 @@
+[package]
+name = "calyx-dsp"
+version = "0.1.0"
+edition = "2021"
+authors = ["Calyx Contributors"]
+description = "First-principles experimental DSP framework in pure Rust with zero external dependencies"
+license = "Apache-2.0"
+readme = "README.md"
+
+[lib]
+name = "calyx_dsp"
+path = "src/lib.rs"
+
+# Strictly ZERO external crate dependencies for core DSP functionality (Demo Integrity Mode)
+[dependencies]
+
+[dev-dependencies]
