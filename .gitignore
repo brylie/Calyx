@@ -29,3 +29,6 @@ _site/
 
 /.quarto/
 **/*.quarto_ipynb
+
+# Agent orchestration scratch files
+.agents/
