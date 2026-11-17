@@ -128,3 +128,19 @@ This document records the empirical results from systematic parameter sweeps acr
 | CP-ALS | Preview | `R=2` | 37.13 | 0.0139 | 102 | 180.7x | 5421.2:1 | 11.35 | 0.10 | 47619 |
 | CP-ALS | Production | `R=6` | 83.86 | 0.0001 | 306 | 60.2x | 1807.1:1 | 21.57 | 0.30 | 16713 |
 | CP-ALS | Reference | `R=12` | 95.93 | 0.0000 | 612 | 30.1x | 903.5:1 | 37.09 | 0.70 | 7189 |
+
+---
+
+## 6. `.calyx` Binary Container Format Serialization Benchmark (Open Questions 4.1 & 4.2)
+
+**Methodology:** Evaluated the chunked `.calyx` binary container format (`src/io/container.rs`, magic `CALX`, version `0.1`, Adler-32 integrity checksums, FourCC chunks `META`, `AXES`, `TUCK`, `CPMD`, `NOIS`) across 7 configurations on the 72-note $(16 \times 12 \times 6 \times 16)$ instrument hypercube. Measured serialized byte sizes, compression ratios relative to raw hypercube tensors and 16-bit $48\text{ kHz}$ PCM audio, serialization/deserialization latencies, and roundtrip numerical reconstruction SNR.
+
+| Configuration | Tier | Size (Bytes) | Size (KB) | Hypercube Comp. | PCM Comp. | Serialize ($\mu$s) | Deserialize ($\mu$s) | Rel. Error | Recon SNR (dB) |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tucker-HOSVD (Preview) | Preview | 1641 | 1.60 KB | 89.9x | 673.9:1 | 5.4 | 5.9 | 0.0109 | 39.29 |
+| Tucker-HOSVD (Production) | Production | 5468 | 5.34 KB | 27.0x | 202.3:1 | 15.2 | 15.9 | 0.0006 | 64.51 |
+| Tucker-HOSVD (Reference) | Reference | 22091 | 21.57 KB | 6.7x | 50.1:1 | 59.4 | 63.2 | 0.0000 | 93.67 |
+| CP-ALS (Preview) | Preview | 1129 | 1.10 KB | 130.6x | 979.6:1 | 4.0 | 4.3 | 0.0139 | 37.13 |
+| CP-ALS (Production) | Production | 2764 | 2.70 KB | 53.3x | 400.1:1 | 8.9 | 9.7 | 0.0001 | 83.86 |
+| CP-ALS (Reference) | Reference | 5211 | 5.09 KB | 28.3x | 212.2:1 | 17.1 | 16.4 | 0.0000 | 95.93 |
+| Hybrid Container (Production) | Production | 8078 | 7.89 KB | 18.3x | 136.9:1 | 23.4 | 24.3 | 0.0006 | 64.51 |

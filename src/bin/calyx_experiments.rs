@@ -1,6 +1,6 @@
 //! CLI runner for the Calyx DSP empirical research & benchmark suite.
 //!
-//! Executes all 5 empirical experiment sweeps and prints the formatted Markdown report.
+//! Executes all 6 empirical experiment sweeps and prints the formatted Markdown report.
 
 #![deny(unsafe_code)]
 

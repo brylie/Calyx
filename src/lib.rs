@@ -11,6 +11,7 @@
 pub mod error;
 pub mod experiments;
 pub mod hypercube;
+pub mod io;
 pub mod math;
 pub mod metrics;
 pub mod pipeline;

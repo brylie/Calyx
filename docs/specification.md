@@ -194,13 +194,13 @@ Typical reduction: N = 64 partials reduced to K = 8 to 16 components, depending 
 
 The full hypercube, after partial-domain reduction, is a multi-dimensional tensor of coefficient values. Tensor decomposition methods compress this structure by factoring it into smaller component matrices or tensors.
 
-**Tucker decomposition:** decomposes the tensor into a small core tensor multiplied by factor matrices along each axis. Each factor matrix captures the principal modes of variation along its axis (e.g., how spectral content varies across dynamic levels). The core tensor captures the interactions between axes.
+Calyx specifies a **Hybrid Tucker + CP Workflow** combining the orthogonal flexibility of Tucker decomposition with the extreme runtime efficiency of Canonical Polyadic (CP) decomposition:
 
-**CP (Canonical Polyadic) decomposition:** represents the tensor as a sum of rank-one components, each of which is an outer product of vectors along each axis. More constrained than Tucker but can be more compact for tensors with low effective rank.
+1. **Tucker-HOSVD (Offline Authoring & Modal Analysis):** Decomposes the tensor into a core tensor multiplied by orthogonal factor matrices along each mode ($t, p, d, a, v$). Tucker-HOSVD computes rapidly in offline analysis ($1.20\text{ ms}$ for a 72-note instrument hypercube) and allows independent, non-uniform rank control per axis (e.g., retaining higher rank along time and pitch while aggressively truncating dynamic and variation axes).
+2. **CP-ALS (Runtime Storage & Voice Evaluation):** Represents the tensor as a sum of $R$ rank-one components ($K \times R$ factor matrices and weighting vector $\lambda$). In Production quality ($R=6$), CP-ALS achieves **$1,807:1$ compression against raw PCM audio** ($60.2\times$ spectral compression) at $83.86\text{ dB}$ tensor SNR. Critically, evaluating a single spectral frame from CP factors requires only $\mathcal{O}(K \cdot R)$ scalar operations—executing in **$0.30\text{ }\mu\text{s}$**, which enables **over 16,000 simultaneous real-time voices** under a 50% single-core CPU budget at a $100\text{ Hz}$ frame rate.
+3. **Tensor train decomposition:** An alternative representation as a chain of three-dimensional cores. While preserved as a potential scaling path for hypercubes with many auxiliary dimensions ($> 6$ axes), it is superseded by the Hybrid Tucker + CP workflow for standard 5D instrument models.
 
-**Tensor train decomposition:** represents the tensor as a chain of three-dimensional cores. Scales well to high-dimensional tensors and allows efficient element access.
-
-The rank or number of components in each decomposition controls the compression ratio and reconstruction quality. These parameters are configurable per quality tier (see Section 4.5).
+**Recommended Pipeline:** Authors configure and inspect hypercubes using Tucker-HOSVD during offline authoring and modal analysis. Prior to container packaging, the hypercube is converted into a CP decomposition (or directly factored via Tucker-seeded CP-ALS) for distribution and real-time playback. The rank or number of components in each decomposition controls the compression ratio and reconstruction quality, configurable per quality tier (see Section 4.5).
 
 ### 4.4 Shared component extraction
 
@@ -216,15 +216,18 @@ The shared component extraction can operate as a preprocessing step before tenso
 
 ### 4.5 Quality tiers
 
-Calyx defines configurable quality tiers that control the aggressiveness of compression:
+Calyx defines three configurable quality tiers that control decomposition ranks, partial counts, and compression targets, backed by empirical validation (see `docs/empirical-findings.md` §5):
 
-| Tier       | Intended use             | Compression target  | Quality target                                       |
-| ---------- | ------------------------ | ------------------- | ---------------------------------------------------- |
-| Preview    | Auditioning, browsing    | Maximum compression | Recognisable character; artifacts acceptable         |
-| Production | Music production, mixing | Balanced            | Perceptually transparent in typical musical contexts |
-| Reference  | Solo exposure, mastering | Conservative        | Near-indistinguishable from original                 |
+| Tier | Intended use | CP Rank ($R$) | Tucker Ranks $[T, P, D, K]$ | Tensor SNR | PCM Compression | Target Partials ($N$) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Preview** | Auditioning, browsing, low-RAM streaming | $R=2$ | $[2, 2, 2, 4]$ | $\ge 37\text{ dB}$ | $>3,000:1$ ($5,421:1$) | $N \in [8, 16]$ |
+| **Production** | Music production, arranging, film scoring | $R=6$ | $[4, 4, 3, 8]$ | $\ge 64\text{ to } 84\text{ dB}$ | $>800:1$ ($1,807:1$) | $N \in [16, 32]$ |
+| **Reference** | Solo exposure, mastering, archival | $R=12$ | $[8, 6, 4, 12]$ | $\ge 93\text{ dB}$ | $>200:1$ ($903:1$) | $N \in [32, 64]$ |
 
-Each tier maps to specific parameter choices in the compression pipeline: number of retained PCA/NMF components, tensor decomposition rank, and stochastic model fidelity.
+Each tier maps to specific parameter choices in the compression pipeline:
+- **PCA / NMF Components ($K$):** Dimensionality reduction selects $K=2$ for Preview, $K=4$ to $K=8$ for Production, and $K=8$ to $K=16$ for Reference.
+- **Adaptive Partials Budget ($N$):** Partials budgets are adaptive per instrument family: dark or geometric-decay timbres (flute, chalumeau clarinet) saturate fidelity at $N \in [8, 12]$ ($38.12\text{ dB}$ SNR), while bright strings, reeds, and piano continue gaining fidelity through $N \in [24, 64]$ ($+4.8\text{ to }+5.0\text{ dB}$ gain between 16 and 24 partials).
+- **Stochastic Model Fidelity:** Residual noise sub-band count and temporal envelope tracking resolution scale with tier quality.
 
 ## 5. Container format
 
@@ -255,19 +258,15 @@ Calyx is not intended to replace SFZ, SF2, or other instrument definition format
 
 ### 6.1 Phase handling
 
-The spectral hypercube as described in Section 2.2 primarily stores amplitude information for deterministic partials. Reconstructing audio from amplitude-only data requires a phase assignment strategy.
+The spectral hypercube as described in Section 2.2 primarily stores amplitude trajectories for deterministic partials. Reconstructing audio from amplitude data requires a phase assignment strategy. Calyx codifies **Phase Vocoder Accumulation** as the normative default strategy, complemented by optional seeded **Phase Dispersion Modeling**, with explicit constraints on legacy strategies:
 
-Several approaches are possible:
-
-**Harmonic phase locking:** assign phases based on the fundamental frequency, with each partial's phase derived as an integer multiple of the fundamental's phase. This produces clean, coherent tones but may sound overly synthetic for instruments with natural phase variation.
-
-**Stored phase envelopes:** include phase information in the spectral frames, compressed alongside amplitudes. This preserves the original phase relationships but increases data size and compression complexity.
-
-**Phase dispersion modeling:** store a per-instrument or per-articulation phase dispersion profile that describes the statistical distribution of inter-partial phase relationships. At synthesis time, phases are assigned according to this distribution, introducing natural variation without storing per-frame phase data.
-
-**Analysis-resynthesis phase recovery:** use phase vocoder techniques to reconstruct plausible phase trajectories from amplitude envelopes and frequency tracks. This adds computational cost at playback but requires no additional stored data.
-
-The optimal approach may vary by instrument type and quality tier. This is an open research question (see docs/open-questions.md).
+1. **Phase Vocoder Accumulation (Normative Default):** Partial instantaneous phase is accumulated continuously across frame hops from frequency trajectories:
+   $$\phi_k[m] = \left(\phi_k[m-1] + 2\pi f_k[m] \frac{\text{hop}}{f_s}\right) \pmod{2\pi}$$
+   Empirical benchmarking (`docs/empirical-findings.md` §2) demonstrates that Phase Vocoder Accumulation matches uncompressed stored phase envelopes within $0.12\text{ dB}$ SNR ($42.50\text{ dB}$ vs. $42.62\text{ dB}$) on harmonic sustain and within $0.23\text{ dB}$ ($36.91\text{ dB}$ vs. $37.14\text{ dB}$) on inharmonic piano, while requiring **$0\text{ bytes/frame}$ of stored phase data** (saving $64\text{ bytes/frame}$ at 16 partials).
+2. **Phase Dispersion Modeling (Optional Ensemble / Warmth Mode):** For synthetic ensemble warmth, chorus effects, or natural onset variation, initial partial phases are seeded via a deterministic pseudo-random hash (`Pcg32`) and subsequently integrated across hops via the phase vocoder. While shifting time-domain waveform alignment, spectral envelope and energy are strictly preserved ($\text{LSD} < 1.0\text{ dB}$, $\text{Spectral Convergence} < 0.01$).
+3. **Harmonic Phase Locking (Deprecated / Prohibited for Inharmonic Timbres):** Enforcing $\phi_k[m] = (k \phi_0[m]) \pmod{2\pi}$ at frame boundaries resets partial phases periodically, clashing destructively with the inharmonic string dispersion $f_k = k f_0 \sqrt{1 + B k^2} > k f_0$. This causes severe destructive phase cancellation during Overlap-Add resynthesis ($\text{LSD}$ degrades drastically to $5.619\text{ dB}$, SNR to $1.30\text{ dB}$). Harmonic phase locking is explicitly deprecated and prohibited for instruments exhibiting stiffness or inharmonicity.
+4. **Stored Phase Envelopes (Reference / Archival Only):** Storing explicit phase per partial per frame ($64\text{ bytes/frame}$ for 16 partials) preserves exact original phase relationships ($42.62\text{ dB}$ SNR) but is generally avoided due to the $0\text{ bytes/frame}$ parity offered by Phase Vocoder Accumulation.
+5. **Normative Validation Metrics:** Perceptual quality evaluation for phase-free and phase-dispersed synthesis must use frequency-domain metrics: **Log-Spectral Distance (LSD)** and **Spectral Convergence** (or Multi-Resolution STFT Loss). Time-domain waveform SNR is not a valid quality predictor when phase is intentionally unconstrained or dispersed (where waveform SNR drops to $-4.5\text{ dB}$ despite excellent $< 1.0\text{ dB}$ LSD and $< 0.01$ spectral convergence).
 
 ### 6.2 Real-time synthesis
 
@@ -278,7 +277,7 @@ For direct playback from the compressed representation, the synthesis engine mus
 3. Synthesise audio from the spectral frame using an additive oscillator bank (deterministic component) and filtered noise generator (stochastic component).
 4. Interpolate smoothly as performance parameters change, producing continuous timbral transitions.
 
-The computational cost of step 2 is the primary constraint on real-time feasibility. For a Tucker decomposition with moderate rank, reconstructing a single spectral frame involves a small number of matrix multiplications, which is well within the budget of modern CPUs at audio frame rates (50 to 200 Hz for spectral frame updates, independent of the audio sample rate).
+The computational cost of step 2 is the primary constraint on real-time feasibility. Under the normative CP decomposition runtime format, evaluating a single spectral frame executes in **$0.30\text{ }\mu\text{s}$** (Production tier $R=6$), enabling **over 16,000 simultaneous voices** under a 50% CPU budget at a $100\text{ Hz}$ frame update rate. Tucker decomposition is also supported for offline authoring and low-polyphony playback ($33.6\text{ }\mu\text{s}$/frame for Production tier, $\approx 148$ voices).
 
 ### 6.3 Decompression to PCM
 

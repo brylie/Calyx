@@ -7,12 +7,19 @@
 //! 3. **Spectral Frame Rate Sweep (OQ 1.3)**: STFT hop size / frame rate vs. transient and sustain fidelity.
 //! 4. **Dimensionality Reduction Benchmark (OQ 2.1 & 2.3)**: PCA vs. NMF across ranks $K$, comparing SNR, LSD, compression ratio, and compute latency.
 //! 5. **Tensor Decomposition & Real-Time Polyphony Benchmark (OQ 2.2, 2.5, & 5.1)**: Tucker HOSVD vs. CP-ALS on a multi-dimensional instrument hypercube, measuring compression ratios vs. PCM, decomposition latency, single-frame evaluation latency, and real-time voice polyphony ceilings.
+//! 6. **.calyx Container Serialization Benchmark (OQ 4.1 & 4.2)**: Serialization throughput, container disk footprint, and compression ratios against raw PCM audio and uncompressed hypercubes.
 
 use std::f64::consts::PI;
+use std::io::Cursor;
 use std::time::Instant;
 
 use crate::error::DspResult;
+use crate::hypercube::coordinates::HypercubeLayout;
 use crate::hypercube::{CpAls, NmfDecomposer, PcaDecomposer, TuckerDecomposition};
+use crate::io::{
+    AxisDefinition, CalyxContainer, CalyxContainerHeader, CpContainerData,
+    QualityTier as ContainerQualityTier, ResidualContainerData, TuckerContainerData,
+};
 use crate::math::{Tensor, WindowType};
 use crate::metrics::{compute_spectral_metrics, compute_time_metrics};
 use crate::spectral::{HarmonicPartial, SpectralAnalyzer, SpectralTrajectory, Stft};
@@ -127,7 +134,32 @@ pub struct TensorBenchmarkRecord {
     pub estimated_max_voices: usize,
 }
 
-/// Aggregated results across all 5 empirical experiments.
+/// Result of a container serialization benchmark in Experiment 6.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContainerBenchmarkRecord {
+    /// Configuration description string (e.g. "Tucker-HOSVD (Production)").
+    pub config_label: String,
+    /// Quality tier label ("Preview", "Production", "Reference").
+    pub tier_label: String,
+    /// Serialized container byte size.
+    pub file_size_bytes: usize,
+    /// Serialized container size in KB.
+    pub file_size_kb: f64,
+    /// Compression ratio relative to uncompressed spectral hypercube (f64 raw data).
+    pub hypercube_compression_ratio: f64,
+    /// Compression ratio relative to equivalent raw 16-bit 48 kHz PCM audio.
+    pub pcm_compression_ratio: f64,
+    /// Serialization wall-clock latency in microseconds.
+    pub serialize_us: f64,
+    /// Deserialization wall-clock latency in microseconds.
+    pub deserialize_us: f64,
+    /// Roundtrip tensor reconstruction relative Frobenius error.
+    pub relative_error: f64,
+    /// Roundtrip tensor reconstruction SNR (dB).
+    pub reconstruction_snr_db: f64,
+}
+
+/// Aggregated results across all 6 empirical experiments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmpiricalStudySuite {
     /// Experiment 1: Partial count sweep results.
@@ -140,10 +172,12 @@ pub struct EmpiricalStudySuite {
     pub dim_reduction_sweep: Vec<DimReductionRecord>,
     /// Experiment 5: Tucker vs. CP-ALS tensor hypercube & real-time polyphony results.
     pub tensor_benchmarks: Vec<TensorBenchmarkRecord>,
+    /// Experiment 6: .calyx binary container format serialization benchmark results.
+    pub container_benchmarks: Vec<ContainerBenchmarkRecord>,
 }
 
 impl EmpiricalStudySuite {
-    /// Executes all 5 empirical DSP experiment suites and returns the aggregated results.
+    /// Executes all 6 empirical DSP experiment suites and returns the aggregated results.
     pub fn run_all() -> DspResult<Self> {
         Ok(Self {
             partial_sweep: run_partial_count_sweep()?,
@@ -151,6 +185,7 @@ impl EmpiricalStudySuite {
             frame_rate_sweep: run_frame_rate_sweep()?,
             dim_reduction_sweep: run_dim_reduction_sweep()?,
             tensor_benchmarks: run_tensor_hypercube_benchmark()?,
+            container_benchmarks: run_container_serialization_benchmark()?,
         })
     }
 
@@ -254,6 +289,27 @@ impl EmpiricalStudySuite {
                 r.decompose_ms,
                 r.frame_eval_us,
                 r.estimated_max_voices
+            ));
+        }
+        md.push('\n');
+
+        // Section 6
+        md.push_str("## 6. .calyx Binary Container Format Serialization Benchmark (Open Questions 4.1 & 4.2)\n\n");
+        md.push_str("| Configuration | Tier | Size (Bytes) | Size (KB) | Hypercube Comp. | PCM Comp. | Serialize ($\\mu$s) | Deserialize ($\\mu$s) | Rel. Error | Recon SNR (dB) |\n");
+        md.push_str("| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+        for r in &self.container_benchmarks {
+            md.push_str(&format!(
+                "| {} | {} | {} | {:.2} KB | {:.1}x | {:.1}:1 | {:.1} | {:.1} | {:.4} | {:.2} |\n",
+                r.config_label,
+                r.tier_label,
+                r.file_size_bytes,
+                r.file_size_kb,
+                r.hypercube_compression_ratio,
+                r.pcm_compression_ratio,
+                r.serialize_us,
+                r.deserialize_us,
+                r.relative_error,
+                r.reconstruction_snr_db
             ));
         }
 
@@ -885,6 +941,292 @@ pub fn run_tensor_hypercube_benchmark() -> DspResult<Vec<TensorBenchmarkRecord>>
     Ok(records)
 }
 
+/// Runs Experiment 6: Extensible .calyx binary container serialization benchmark across quality tiers.
+///
+/// Evaluates:
+/// - Serialization latency (microseconds)
+/// - Deserialization latency (microseconds)
+/// - Serialized container file size (bytes and kilobytes)
+/// - Compression ratios against uncompressed hypercube and raw 16-bit 48 kHz PCM audio
+/// - Numerical reconstruction error (Frobenius error and SNR) verifying exact zero-loss roundtrip
+pub fn run_container_serialization_benchmark() -> DspResult<Vec<ContainerBenchmarkRecord>> {
+    let dim_t = 16usize;
+    let dim_p = 12usize;
+    let dim_d = 6usize;
+    let dim_k = 16usize;
+    let shape = vec![dim_t, dim_p, dim_d, dim_k];
+    let total_spectral_floats = dim_t * dim_p * dim_d * dim_k; // 18,432 floats
+
+    // Equivalent PCM audio size: 72 notes * 16 frames * 480 samples = 552,960 samples
+    let equivalent_pcm_samples = (dim_p * dim_d * dim_t * 480) as f64;
+    let raw_pcm_bytes = equivalent_pcm_samples * 2.0; // 16-bit PCM = 1,105,920 bytes
+    let uncompressed_hypercube_bytes = (total_spectral_floats * 8) as f64; // f64 = 147,456 bytes
+
+    let inst = SyntheticInstrumentSource::new();
+    let mut data = vec![0.0_f64; total_spectral_floats];
+
+    for t_idx in 0..dim_t {
+        let t_sec = (t_idx as f64) * 0.01;
+        for p_idx in 0..dim_p {
+            let midi_pitch = 60.0 + (p_idx as f64);
+            for d_idx in 0..dim_d {
+                let dyn_val = 0.15 + 0.85 * (d_idx as f64) / ((dim_d - 1) as f64);
+                let frame = inst.query_frame([t_sec, midi_pitch, dyn_val, 0.8, 0.0])?;
+                let base_offset = ((t_idx * dim_p + p_idx) * dim_d + d_idx) * dim_k;
+                for partial in &frame.partials {
+                    if partial.harmonic_index >= 1 && partial.harmonic_index <= dim_k {
+                        data[base_offset + (partial.harmonic_index - 1)] = partial.amplitude;
+                    }
+                }
+            }
+        }
+    }
+
+    let hypercube_tensor = Tensor::from_vec(shape.clone(), data)?;
+    let orig_slice = hypercube_tensor.data();
+    let orig_energy: f64 = orig_slice.iter().map(|x| x * x).sum();
+
+    let mut records = Vec::new();
+
+    let axis_defs = vec![
+        AxisDefinition::new("time", dim_t, 0.0, 0.16)?,
+        AxisDefinition::new("pitch", dim_p, 60.0, 71.0)?,
+        AxisDefinition::new("dynamic", dim_d, 0.15, 1.0)?,
+        AxisDefinition::new("partial", dim_k, 1.0, 16.0)?,
+    ];
+    let layout = HypercubeLayout::new(shape.clone())?;
+
+    let benchmark_iters = 30usize;
+
+    // 1. Tucker-HOSVD configurations
+    let tucker_configs = [
+        ("Preview", [2usize, 2, 2, 4], ContainerQualityTier::Preview),
+        ("Production", [4usize, 4, 3, 8], ContainerQualityTier::Production),
+        ("Reference", [8usize, 6, 4, 12], ContainerQualityTier::Reference),
+    ];
+
+    for (tier_label, ranks, tier) in &tucker_configs {
+        let tucker = TuckerDecomposition::decompose(&hypercube_tensor, ranks)?;
+        let tucker_data = TuckerContainerData::from_decomposition(&tucker);
+
+        let header = CalyxContainerHeader::new(*tier, 48000.0, 480, dim_k as u16);
+        let container = CalyxContainer::new(header, layout.clone())
+            .with_axes(axis_defs.clone())?
+            .with_metadata_entry("name", "Synthetic Solo Instrument")
+            .with_metadata_entry("author", "Calyx DSP Research")
+            .with_metadata_entry("tier", *tier_label)
+            .with_tucker(tucker_data);
+
+        // Benchmark serialization
+        let mut buf = Vec::new();
+        let t_ser = Instant::now();
+        for _ in 0..benchmark_iters {
+            buf.clear();
+            container.write(&mut buf)?;
+        }
+        let serialize_us = (t_ser.elapsed().as_secs_f64() * 1e6) / (benchmark_iters as f64);
+
+        let file_size_bytes = buf.len();
+        let file_size_kb = file_size_bytes as f64 / 1024.0;
+
+        // Benchmark deserialization
+        let mut rec_container = None;
+        let t_deser = Instant::now();
+        for _ in 0..benchmark_iters {
+            let mut cursor = Cursor::new(&buf);
+            rec_container = Some(CalyxContainer::read(&mut cursor)?);
+        }
+        let deserialize_us = (t_deser.elapsed().as_secs_f64() * 1e6) / (benchmark_iters as f64);
+
+        let recovered = rec_container.unwrap();
+        let rec_tucker = recovered.tucker_data.unwrap().to_decomposition()?;
+        let recon_tensor = rec_tucker.reconstruct_tensor()?;
+        let recon_slice = recon_tensor.data();
+
+        let err_energy: f64 = orig_slice
+            .iter()
+            .zip(recon_slice.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        let rel_err = (err_energy / orig_energy.max(1e-30)).sqrt();
+        let snr_db = 10.0 * (orig_energy / err_energy.max(1e-30)).log10();
+
+        records.push(ContainerBenchmarkRecord {
+            config_label: format!("Tucker-HOSVD ({})", tier_label),
+            tier_label: (*tier_label).to_string(),
+            file_size_bytes,
+            file_size_kb,
+            hypercube_compression_ratio: uncompressed_hypercube_bytes / (file_size_bytes as f64),
+            pcm_compression_ratio: raw_pcm_bytes / (file_size_bytes as f64),
+            serialize_us,
+            deserialize_us,
+            relative_error: rel_err,
+            reconstruction_snr_db: snr_db,
+        });
+    }
+
+    // 2. CP-ALS configurations
+    let cp_configs = [
+        ("Preview", 2usize, ContainerQualityTier::Preview),
+        ("Production", 6usize, ContainerQualityTier::Production),
+        ("Reference", 12usize, ContainerQualityTier::Reference),
+    ];
+
+    for (tier_label, rank, tier) in &cp_configs {
+        let cp = CpAls::decompose(&hypercube_tensor, *rank, 20)?;
+        let cp_data = CpContainerData::from_model(&cp);
+
+        let header = CalyxContainerHeader::new(*tier, 48000.0, 480, dim_k as u16);
+        let container = CalyxContainer::new(header, layout.clone())
+            .with_axes(axis_defs.clone())?
+            .with_metadata_entry("name", "Synthetic Solo Instrument")
+            .with_metadata_entry("author", "Calyx DSP Research")
+            .with_metadata_entry("tier", *tier_label)
+            .with_cp(cp_data);
+
+        // Benchmark serialization
+        let mut buf = Vec::new();
+        let t_ser = Instant::now();
+        for _ in 0..benchmark_iters {
+            buf.clear();
+            container.write(&mut buf)?;
+        }
+        let serialize_us = (t_ser.elapsed().as_secs_f64() * 1e6) / (benchmark_iters as f64);
+
+        let file_size_bytes = buf.len();
+        let file_size_kb = file_size_bytes as f64 / 1024.0;
+
+        // Benchmark deserialization
+        let mut rec_container = None;
+        let t_deser = Instant::now();
+        for _ in 0..benchmark_iters {
+            let mut cursor = Cursor::new(&buf);
+            rec_container = Some(CalyxContainer::read(&mut cursor)?);
+        }
+        let deserialize_us = (t_deser.elapsed().as_secs_f64() * 1e6) / (benchmark_iters as f64);
+
+        let recovered = rec_container.unwrap();
+        let rec_cp = recovered.cp_data.unwrap().to_model()?;
+
+        // Reconstruct tensor from deserialized CP factors
+        let mut recon_data = vec![0.0_f64; total_spectral_floats];
+        for t_i in 0..dim_t {
+            for p_i in 0..dim_p {
+                for d_i in 0..dim_d {
+                    let base_offset = ((t_i * dim_p + p_i) * dim_d + d_i) * dim_k;
+                    for k_i in 0..dim_k {
+                        let mut val = 0.0;
+                        for r in 0..*rank {
+                            val += rec_cp.weights[r]
+                                * rec_cp.factors[0][(t_i, r)]
+                                * rec_cp.factors[1][(p_i, r)]
+                                * rec_cp.factors[2][(d_i, r)]
+                                * rec_cp.factors[3][(k_i, r)];
+                        }
+                        recon_data[base_offset + k_i] = val;
+                    }
+                }
+            }
+        }
+
+        let err_energy: f64 = orig_slice
+            .iter()
+            .zip(recon_data.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        let rel_err = (err_energy / orig_energy.max(1e-30)).sqrt();
+        let snr_db = 10.0 * (orig_energy / err_energy.max(1e-30)).log10();
+
+        records.push(ContainerBenchmarkRecord {
+            config_label: format!("CP-ALS ({})", tier_label),
+            tier_label: (*tier_label).to_string(),
+            file_size_bytes,
+            file_size_kb,
+            hypercube_compression_ratio: uncompressed_hypercube_bytes / (file_size_bytes as f64),
+            pcm_compression_ratio: raw_pcm_bytes / (file_size_bytes as f64),
+            serialize_us,
+            deserialize_us,
+            relative_error: rel_err,
+            reconstruction_snr_db: snr_db,
+        });
+    }
+
+    // 3. Hybrid Container (Tucker + CP + Metadata + Residual)
+    {
+        let tucker = TuckerDecomposition::decompose(&hypercube_tensor, &[4, 4, 3, 8])?;
+        let tucker_data = TuckerContainerData::from_decomposition(&tucker);
+
+        let cp = CpAls::decompose(&hypercube_tensor, 6, 20)?;
+        let cp_data = CpContainerData::from_model(&cp);
+
+        let residual_data = ResidualContainerData {
+            num_bands: 4,
+            center_frequencies: vec![250.0, 1000.0, 4000.0, 12000.0],
+            band_energies: vec![0.005, 0.012, 0.008, 0.002],
+            noise_ratio: 0.035,
+        };
+
+        let header = CalyxContainerHeader::new(ContainerQualityTier::Production, 48000.0, 480, dim_k as u16);
+        let container = CalyxContainer::new(header, layout)
+            .with_axes(axis_defs)?
+            .with_metadata_entry("name", "Synthetic Solo Instrument")
+            .with_metadata_entry("author", "Calyx DSP Research")
+            .with_metadata_entry("workflow", "Hybrid Tucker+CP")
+            .with_tucker(tucker_data)
+            .with_cp(cp_data)
+            .with_residual(residual_data);
+
+        // Benchmark serialization
+        let mut buf = Vec::new();
+        let t_ser = Instant::now();
+        for _ in 0..benchmark_iters {
+            buf.clear();
+            container.write(&mut buf)?;
+        }
+        let serialize_us = (t_ser.elapsed().as_secs_f64() * 1e6) / (benchmark_iters as f64);
+
+        let file_size_bytes = buf.len();
+        let file_size_kb = file_size_bytes as f64 / 1024.0;
+
+        // Benchmark deserialization
+        let mut rec_container = None;
+        let t_deser = Instant::now();
+        for _ in 0..benchmark_iters {
+            let mut cursor = Cursor::new(&buf);
+            rec_container = Some(CalyxContainer::read(&mut cursor)?);
+        }
+        let deserialize_us = (t_deser.elapsed().as_secs_f64() * 1e6) / (benchmark_iters as f64);
+
+        let recovered = rec_container.unwrap();
+        let rec_tucker = recovered.tucker_data.unwrap().to_decomposition()?;
+        let recon_tensor = rec_tucker.reconstruct_tensor()?;
+        let recon_slice = recon_tensor.data();
+
+        let err_energy: f64 = orig_slice
+            .iter()
+            .zip(recon_slice.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        let rel_err = (err_energy / orig_energy.max(1e-30)).sqrt();
+        let snr_db = 10.0 * (orig_energy / err_energy.max(1e-30)).log10();
+
+        records.push(ContainerBenchmarkRecord {
+            config_label: "Hybrid Container (Production)".to_string(),
+            tier_label: "Production".to_string(),
+            file_size_bytes,
+            file_size_kb,
+            hypercube_compression_ratio: uncompressed_hypercube_bytes / (file_size_bytes as f64),
+            pcm_compression_ratio: raw_pcm_bytes / (file_size_bytes as f64),
+            serialize_us,
+            deserialize_us,
+            relative_error: rel_err,
+            reconstruction_snr_db: snr_db,
+        });
+    }
+
+    Ok(records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -947,5 +1289,20 @@ mod tests {
         assert!(md.contains("Calyx DSP Empirical Research Findings"));
         assert!(md.contains("Tucker-HOSVD"));
         assert!(md.contains("CP-ALS"));
+        assert!(md.contains("Container Format Serialization Benchmark"));
+    }
+
+    #[test]
+    fn test_container_serialization_benchmark() {
+        let records = run_container_serialization_benchmark().expect("container benchmark should succeed");
+        assert_eq!(records.len(), 7);
+        for r in &records {
+            assert!(r.file_size_bytes > 0);
+            assert!(r.serialize_us > 0.0);
+            assert!(r.deserialize_us > 0.0);
+            assert!(r.reconstruction_snr_db > 30.0);
+            assert!(r.hypercube_compression_ratio > 1.0);
+            assert!(r.pcm_compression_ratio > 10.0);
+        }
     }
 }
